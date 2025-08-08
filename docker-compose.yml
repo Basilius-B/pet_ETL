@@ -1,0 +1,147 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init_db/create_db.sql:/docker-entrypoint-initdb.d/create_db.sql  # скрипты для создания второй БД
+    ports:
+      - "5432:5432"
+
+  db-init:
+    image: postgres:15
+    depends_on:
+      - postgres
+    environment:
+      PGPASSWORD: airflow
+    volumes:
+      - ./init_db/create_ddl.sql:/tmp/create_ddl.sql
+    entrypoint: >
+      bash -c "
+        echo '⏳ Waiting for postgres...';
+        until pg_isready -h postgres -U airflow -d crypto_data; do sleep 2; done;
+        echo '✅ Postgres is ready. Initializing tables...';
+        psql -h postgres -U airflow -d crypto_data -f /tmp/create_ddl.sql;
+      "
+
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    depends_on:
+      - postgres
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__WEBSERVER__SECRET_KEY: 6c16b2a0b3d14e78a517e16e61ddf282
+      AIRFLOW__CORE__FERNET_KEY: XwRiStbhV9Q6w6nR0kTOjWxH4c9DyaGfLZ4UmAr0wWY=
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
+      AIRFLOW__LOGGING__DAG_PROCESSOR_MANAGER_LOG_LOCATION: /opt/airflow/logs/dag_processor_manager/dag_processor_manager.log
+
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./spark_jobs:/opt/airflow/spark_jobs
+      - ./jars:/opt/bitnami/spark/custom-jars
+    ports:
+      - "8080:8080"
+    command: >
+      bash -c "
+        airflow db upgrade &&
+        airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin &&
+        airflow webserver"
+
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    depends_on:
+      - postgres
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__WEBSERVER__SECRET_KEY: 6c16b2a0b3d14e78a517e16e61ddf282
+      AIRFLOW__CORE__FERNET_KEY: XwRiStbhV9Q6w6nR0kTOjWxH4c9DyaGfLZ4UmAr0wWY=
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
+      AIRFLOW__LOGGING__DAG_PROCESSOR_MANAGER_LOG_LOCATION: /opt/airflow/logs/dag_processor_manager/dag_processor_manager.log
+
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./spark_jobs:/opt/airflow/spark_jobs
+      - ./jars:/opt/bitnami/spark/custom-jars
+    command: scheduler
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    volumes:
+      - minio_data:/data
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    ports:
+      - "9000:9000"   # API
+      - "9001:9001"   # Web UI
+    command: server --console-address ":9001" /data
+
+  minio-client:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+        sleep 5;
+        mc alias set local http://minio:9000 minio minio123;
+        mc mb -p local/raw-data;
+        mc mb -p local/transformed-data;
+        exit 0;"
+
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile.jupyter
+    depends_on:
+      - minio
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./notebooks:/home/jovyan/work
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - JUPYTER_TOKEN=mysecuretoken
+
+  spark-master:
+    image: bitnami/spark:3.5.1
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+      - SPARK_EXTRA_CLASSPATH=/opt/bitnami/spark/custom-jars/*
+    volumes:
+      - ./jars:/opt/bitnami/spark/custom-jars  # ✅ отдельная папка
+    ports:
+      - "7077:7077"
+      - "8081:8080"
+
+  spark-worker:
+    image: bitnami/spark:3.5.1
+    container_name: spark-worker
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_EXTRA_CLASSPATH=/opt/bitnami/spark/custom-jars/*
+    volumes:
+      - ./jars:/opt/bitnami/spark/custom-jars  # ✅ тоже отдельная папка
+
+volumes:
+  postgres_data:
+  minio_data:
