@@ -21,8 +21,6 @@ from airflow.operators.python import PythonOperator
 import boto3
 from datetime import datetime
 
-url = "https://data.binance.vision/data/futures/um/daily/klines/BTCUSDT/5m/"
-
 client = boto3.client(
     service_name='s3',
     endpoint_url='http://minio:9000',
@@ -36,8 +34,6 @@ default_args = {
     'retries': 2,
     'retry_delay': timedelta(minutes=60),
 }
-
-["BTCUSDT", "DOGEUSDT", "ETHUSDT"]
 
 list_pair = Variable.get("list_symbol", deserialize_json=True)
 
@@ -60,7 +56,7 @@ def date_range(start_date, end_date):
 
 def load_raw_data(history_date, symbol, **kwargs):
     logging.info(f"start {symbol}")
-    zip_url = f'https://data.binance.vision/data/futures/um/daily/klines/{symbol}/5m/{symbol}-5m-{history_date}.zip'  # Replace with your real URL
+    zip_url = f'https://data.binance.vision/data/futures/um/daily/klines/{symbol}/5m/{symbol}-5m-{history_date}.zip'
     response = requests.get(zip_url)
     if response.status_code != 200:
         logging.error(f"Failed to download ZIP: {response.status_code}")
@@ -81,14 +77,14 @@ def load_raw_data(history_date, symbol, **kwargs):
     buffer.seek(0)
     try:
         client.head_object(Bucket=bucket_name, Key=object_name)
-        print(f"❌ File already exists in s3://{bucket_name}/{object_name}")
+        logging.info(f"❌ File already exists in s3://{bucket_name}/{object_name}")
     except ClientError as e:
         if e.response['Error']['Code'] == "404":
             # Объект не найден — можно загружать
             client.upload_fileobj(buffer, bucket_name, object_name)
-            print(f"✅ Uploaded to s3://{bucket_name}/{object_name}")
+            logging.info(f"✅ Uploaded to s3://{bucket_name}/{object_name}")
         else:
-            # Другие ошибки (например, прав нет)
+            logging.error(f"ERROR: {e}")
             raise
 
 

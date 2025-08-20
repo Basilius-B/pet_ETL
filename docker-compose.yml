@@ -3,6 +3,7 @@ version: '3.8'
 services:
   postgres:
     image: postgres:15
+    container_name: pet-postgres-15
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
@@ -15,6 +16,7 @@ services:
 
   db-init:
     image: postgres:15
+    container_name: pet-postgres-init
     depends_on:
       - postgres
     environment:
@@ -23,16 +25,20 @@ services:
       - ./init_db/create_ddl.sql:/tmp/create_ddl.sql
     entrypoint: >
       bash -c "
-        echo '⏳ Waiting for postgres...';
+        echo 'Waiting for postgres...';
         until pg_isready -h postgres -U airflow -d crypto_data; do sleep 2; done;
-        echo '✅ Postgres is ready. Initializing tables...';
+        echo 'Postgres is ready. Initializing tables...';
         psql -h postgres -U airflow -d crypto_data -f /tmp/create_ddl.sql;
       "
-
-  airflow-webserver:
+  x-airflow-image: &airflow-image
     build:
       context: .
       dockerfile: Dockerfile.airflow
+    image: pet-airflow
+
+
+  airflow-webserver:
+    <<: *airflow-image
     depends_on:
       - postgres
     environment:
@@ -58,10 +64,9 @@ services:
         airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin &&
         airflow webserver"
 
+
   airflow-scheduler:
-    build:
-      context: .
-      dockerfile: Dockerfile.airflow
+    <<: *airflow-image
     depends_on:
       - postgres
     environment:
@@ -81,7 +86,7 @@ services:
 
   minio:
     image: minio/minio
-    container_name: minio
+    container_name: pet-minio
     volumes:
       - minio_data:/data
     environment:
@@ -104,35 +109,34 @@ services:
         mc mb -p local/transformed-data;
         exit 0;"
 
-  jupyter:
-    build:
-      context: .
-      dockerfile: Dockerfile.jupyter
-    depends_on:
-      - minio
-    ports:
-      - "8888:8888"
+  spark-init:
+    image: alpine:latest
     volumes:
-      - ./notebooks:/home/jovyan/work
-    environment:
-      - JUPYTER_ENABLE_LAB=yes
-      - JUPYTER_TOKEN=mysecuretoken
+      - ./jars:/opt/bitnami/spark/custom-jars
+    command: >
+      sh -c "
+      apk add --no-cache curl &&
+      curl -L -o /opt/bitnami/spark/custom-jars/hadoop-aws-3.3.4.jar https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar &&
+      curl -L -o /opt/bitnami/spark/custom-jars/aws-java-sdk-bundle-1.11.1026.jar https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.11.1026/aws-java-sdk-bundle-1.11.1026.jar
+      "
+    restart: "no"
+
 
   spark-master:
     image: bitnami/spark:3.5.1
-    container_name: spark-master
+    container_name: pet-spark-master
     environment:
       - SPARK_MODE=master
       - SPARK_EXTRA_CLASSPATH=/opt/bitnami/spark/custom-jars/*
     volumes:
-      - ./jars:/opt/bitnami/spark/custom-jars  # ✅ отдельная папка
+      - ./jars:/opt/bitnami/spark/custom-jars
     ports:
       - "7077:7077"
       - "8081:8080"
 
   spark-worker:
     image: bitnami/spark:3.5.1
-    container_name: spark-worker
+    container_name: pet-spark-worker
     depends_on:
       - spark-master
     environment:
@@ -140,7 +144,23 @@ services:
       - SPARK_MASTER_URL=spark://spark-master:7077
       - SPARK_EXTRA_CLASSPATH=/opt/bitnami/spark/custom-jars/*
     volumes:
-      - ./jars:/opt/bitnami/spark/custom-jars  # ✅ тоже отдельная папка
+      - ./jars:/opt/bitnami/spark/custom-jars
+
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile.jupyter
+    container_name: pet-jupyter
+    depends_on:
+      - minio
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./jars:/opt/bitnami/spark/custom-jars
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - JUPYTER_TOKEN=mysecuretoken
 
 volumes:
   postgres_data:
