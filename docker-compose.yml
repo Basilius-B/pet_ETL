@@ -117,7 +117,8 @@ services:
       sh -c "
       apk add --no-cache curl &&
       curl -L -o /opt/bitnami/spark/custom-jars/hadoop-aws-3.3.4.jar https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar &&
-      curl -L -o /opt/bitnami/spark/custom-jars/aws-java-sdk-bundle-1.11.1026.jar https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.11.1026/aws-java-sdk-bundle-1.11.1026.jar
+      curl -L -o /opt/bitnami/spark/custom-jars/aws-java-sdk-bundle-1.11.1026.jar https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.11.1026/aws-java-sdk-bundle-1.11.1026.jar &&
+      curl -L -o /opt/bitnami/spark/custom-jars/postgresql-42.7.3.jar https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.3/postgresql-42.7.3.jar
       "
     restart: "no"
 
