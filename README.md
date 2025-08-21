@@ -5,7 +5,7 @@ The ETL process for crypto data from Binance.
 ---
 ## Table of Contents
 
-- [Pipeline schema](#Pipeline schema)
+- [Pipeline schema](#Pipeline_schema)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Configuration](#configuration)
